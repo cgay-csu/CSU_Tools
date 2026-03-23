@@ -104,6 +104,7 @@ def fill_pdf(data: dict, output_target):
         raise FileNotFoundError(f"PDF template not found at {pdf_path}.")
     reader = PdfReader(pdf_path)
     writer = PdfWriter()
+
     # Convert dates to strings
     def stringify_dates(obj):
         if isinstance(obj, dict):
@@ -115,6 +116,7 @@ def fill_pdf(data: dict, output_target):
         else:
             return obj
     safe_data = stringify_dates(data)
+
     for page_num in range(1, 3):
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(PDF_W, PDF_H))
@@ -130,6 +132,7 @@ def fill_pdf(data: dict, output_target):
 st.set_page_config(layout="wide", page_title="🔥 CSU Louisiana Prescribed Burn Plan")
 st.title("🔥 CSU Louisiana Prescribed Burn Plan")
 
+# Session state
 if "data" not in st.session_state:
     st.session_state.data = {}
 data = st.session_state.data
@@ -144,7 +147,8 @@ else:
 
 def apply_defaults(group):
     for k, v in defaults.get(group, {}).items():
-        data[k] = v
+        st.session_state.data[k] = v
+    st.experimental_rerun()
 
 def parse_date(d):
     if isinstance(d, date):
@@ -157,17 +161,7 @@ def parse_date(d):
         except:
             return date.today()
 
-def stringify_dates(obj):
-    if isinstance(obj, dict):
-        return {k: stringify_dates(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [stringify_dates(i) for i in obj]
-    elif isinstance(obj, date):
-        return obj.strftime("%m/%d/%Y")
-    else:
-        return obj
-
-# ── UI TABS (General, Weather, Firing, Actual, Checklist) ──
+# ── TABS ──
 tabs = st.tabs(["📋 General","🌤 Weather","🔥 Firing","📊 Actual","✅ Checklist"])
 
 # ── GENERAL TAB ──
@@ -175,10 +169,7 @@ with tabs[0]:
     st.header("General Info")
     col1, col2 = st.columns(2)
     with col1:
-        data["date_prepared"] = st.date_input(
-            "Date Prepared",
-            value=parse_date(data.get("date_prepared"))
-        )
+        data["date_prepared"] = st.date_input("Date Prepared", value=parse_date(data.get("date_prepared")))
         data["landowner"] = st.text_input("Landowner", data.get("landowner",""))
         data["phone"] = st.text_input("Phone", data.get("phone",""))
         data["address"] = st.text_input("Address", data.get("address",""))
@@ -187,11 +178,7 @@ with tabs[0]:
         data["acreage"] = st.text_input("Acreage", data.get("acreage",""))
         data["lat"] = st.text_input("Latitude", data.get("lat",""))
         data["lon"] = st.text_input("Longitude", data.get("lon",""))
-    data["reason_for_burn"] = st.radio(
-        "Reason for Burn",
-        ["SITE PREP", "FUEL REDUCTION", "TSI", "WILDLIFE", "OTHER"],
-        index=1
-    )
+    data["reason_for_burn"] = st.radio("Reason for Burn", ["SITE PREP","FUEL REDUCTION","TSI","WILDLIFE","OTHER"], index=1)
     data["fuel_amount"] = st.radio("Fuel Amount", ["LIGHT","MEDIUM","HEAVY"], index=1)
     data["fuel_type"] = st.radio("Fuel Type", ["GRASSES","BRUSH","LOGGING DEBRIS","OTHER"])
     if st.button("⚙ Apply General Defaults"):
@@ -215,10 +202,7 @@ with tabs[1]:
 # ── FIRING TAB ──
 with tabs[2]:
     st.header("Firing & Equipment")
-    data["firing_technique"] = st.radio(
-        "Technique",
-        ["HEAD","FLANK","BACKING","OTHER"]
-    )
+    data["firing_technique"] = st.radio("Technique", ["HEAD","FLANK","BACKING","OTHER"])
     data["firing_other"] = st.text_input("If OTHER", data.get("firing_other",""))
     data["manpower_equipment"] = st.text_area("Manpower & Equipment", data.get("manpower_equipment",""))
     data["plan_prepared_by"] = st.text_input("Prepared By", data.get("plan_prepared_by",""))
@@ -245,7 +229,7 @@ with tabs[3]:
             st.success("Weather loaded")
     col1, col2 = st.columns(2)
     with col1:
-        data["actual_date"] = st.date_input("Date",value=parse_date(data.get("actual_date")))
+        data["actual_date"] = st.date_input("Date", value=parse_date(data.get("actual_date")))
         data["actual_wind_speed"] = st.text_input("Wind Speed", data.get("actual_wind_speed",""))
         data["actual_wind_dir"] = st.text_input("Wind Dir", data.get("actual_wind_dir",""))
     with col2:
@@ -265,7 +249,8 @@ with tabs[4]:
     data["burn_manager_contact"] = st.text_input("Contact", data.get("burn_manager_contact",""))
     if st.button("⚙ Apply Checklist Defaults"):
         apply_defaults("checklist")
-# For PDF export:
+
+# ── PDF EXPORT ──
 st.divider()
 if st.button("📄 Generate PDF"):
     try:
