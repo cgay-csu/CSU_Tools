@@ -10,9 +10,9 @@ from pypdf import PdfReader, PdfWriter
 # ── CONSTANTS ──
 NWS_POINTS = {
     "SE Louisiana (New Orleans/Baton Rouge)": ("30.4515", "-91.1543"),
-    "SW Louisiana (Lake Charles)":            ("30.2266", "-93.2174"),
-    "NW Louisiana (Shreveport)":              ("32.5252", "-93.7502"),
-    "NE Louisiana (Jackson, MS region)":      ("32.5093", "-92.1193"),
+    "SW Louisiana (Lake Charles)": ("30.2266", "-93.2174"),
+    "NW Louisiana (Shreveport)": ("32.5252", "-93.7502"),
+    "NE Louisiana (Jackson, MS region)": ("32.5093", "-92.1193"),
 }
 
 PDF_W = 784.62
@@ -42,7 +42,40 @@ CHK_CENTERS = [
     (160.0, 598.1), (160.0, 636.6)
 ]
 
-# ── WEATHER FETCHING ──
+# ── LOAD DEFAULTS ──
+DEFAULTS_FILE = "defaults_web.json"
+if os.path.exists(DEFAULTS_FILE):
+    with open(DEFAULTS_FILE) as f:
+        defaults = json.load(f)
+else:
+    defaults = {}
+
+# ── STREAMLIT SETUP ──
+st.set_page_config(layout="wide", page_title="🔥 CSU Louisiana Prescribed Burn Plan")
+st.title("🔥 CSU Louisiana Prescribed Burn Plan")
+
+# ── SESSION STATE ──
+if "data" not in st.session_state:
+    st.session_state.data = {}
+
+# helper functions
+def parse_date(d):
+    if isinstance(d, date):
+        return d
+    try:
+        return datetime.fromisoformat(d).date()
+    except:
+        try:
+            return datetime.strptime(d, "%m/%d/%Y").date()
+        except:
+            return date.today()
+
+def apply_defaults(group):
+    """Update session state with defaults from JSON."""
+    for k, v in defaults.get(group, {}).items():
+        st.session_state.data[k] = v
+
+# ── WEATHER FETCH ──
 def fetch_nws_forecast(region: str) -> dict:
     lat, lon = NWS_POINTS[region]
     headers = {"User-Agent": "PrescribedBurnPlanner/1.0 (la.burn.planner@example.com)"}
@@ -115,7 +148,7 @@ def fill_pdf(data: dict, output_target):
             return obj.strftime("%m/%d/%Y")
         else:
             return obj
-    safe_data = stringify_dates(data)
+    safe_data = stringify_dates(st.session_state.data)
 
     for page_num in range(1, 3):
         buf = io.BytesIO()
@@ -128,39 +161,6 @@ def fill_pdf(data: dict, output_target):
         writer.pages[page_num-1].merge_page(overlay_reader.pages[0])
     writer.write(output_target)
 
-# ── STREAMLIT APP ──
-st.set_page_config(layout="wide", page_title="🔥 CSU Louisiana Prescribed Burn Plan")
-st.title("🔥 CSU Louisiana Prescribed Burn Plan")
-
-# Session state
-if "data" not in st.session_state:
-    st.session_state.data = {}
-data = st.session_state.data
-
-# Load defaults from repo JSON
-DEFAULTS_FILE = "defaults_web.json"
-if os.path.exists(DEFAULTS_FILE):
-    with open(DEFAULTS_FILE) as f:
-        defaults = json.load(f)
-else:
-    defaults = {}
-
-def apply_defaults(group):
-    for k, v in defaults.get(group, {}).items():
-        st.session_state.data[k] = v
-    st.experimental_rerun()
-
-def parse_date(d):
-    if isinstance(d, date):
-        return d
-    try:
-        return datetime.fromisoformat(d).date()
-    except:
-        try:
-            return datetime.strptime(d, "%m/%d/%Y").date()
-        except:
-            return date.today()
-
 # ── TABS ──
 tabs = st.tabs(["📋 General","🌤 Weather","🔥 Firing","📊 Actual","✅ Checklist"])
 
@@ -169,18 +169,48 @@ with tabs[0]:
     st.header("General Info")
     col1, col2 = st.columns(2)
     with col1:
-        data["date_prepared"] = st.date_input("Date Prepared", value=parse_date(data.get("date_prepared")))
-        data["landowner"] = st.text_input("Landowner", data.get("landowner",""))
-        data["phone"] = st.text_input("Phone", data.get("phone",""))
-        data["address"] = st.text_input("Address", data.get("address",""))
+        st.session_state.data["date_prepared"] = st.date_input(
+            "Date Prepared",
+            value=parse_date(st.session_state.data.get("date_prepared"))
+        )
+        st.session_state.data["landowner"] = st.text_input(
+            "Landowner", value=st.session_state.data.get("landowner","")
+        )
+        st.session_state.data["phone"] = st.text_input(
+            "Phone", value=st.session_state.data.get("phone","")
+        )
+        st.session_state.data["address"] = st.text_input(
+            "Address", value=st.session_state.data.get("address","")
+        )
     with col2:
-        data["city_state_zip"] = st.text_input("City/State/ZIP", data.get("city_state_zip",""))
-        data["acreage"] = st.text_input("Acreage", data.get("acreage",""))
-        data["lat"] = st.text_input("Latitude", data.get("lat",""))
-        data["lon"] = st.text_input("Longitude", data.get("lon",""))
-    data["reason_for_burn"] = st.radio("Reason for Burn", ["SITE PREP","FUEL REDUCTION","TSI","WILDLIFE","OTHER"], index=1)
-    data["fuel_amount"] = st.radio("Fuel Amount", ["LIGHT","MEDIUM","HEAVY"], index=1)
-    data["fuel_type"] = st.radio("Fuel Type", ["GRASSES","BRUSH","LOGGING DEBRIS","OTHER"])
+        st.session_state.data["city_state_zip"] = st.text_input(
+            "City/State/ZIP", value=st.session_state.data.get("city_state_zip","")
+        )
+        st.session_state.data["acreage"] = st.text_input(
+            "Acreage", value=st.session_state.data.get("acreage","")
+        )
+        st.session_state.data["lat"] = st.text_input(
+            "Latitude", value=st.session_state.data.get("lat","")
+        )
+        st.session_state.data["lon"] = st.text_input(
+            "Longitude", value=st.session_state.data.get("lon","")
+        )
+    st.session_state.data["reason_for_burn"] = st.radio(
+        "Reason for Burn", ["SITE PREP","FUEL REDUCTION","TSI","WILDLIFE","OTHER"],
+        index=["SITE PREP","FUEL REDUCTION","TSI","WILDLIFE","OTHER"].index(
+            st.session_state.data.get("reason_for_burn","FUEL REDUCTION")
+        )
+    )
+    st.session_state.data["fuel_amount"] = st.radio(
+        "Fuel Amount", ["LIGHT","MEDIUM","HEAVY"],
+        index=["LIGHT","MEDIUM","HEAVY"].index(st.session_state.data.get("fuel_amount","MEDIUM"))
+    )
+    st.session_state.data["fuel_type"] = st.radio(
+        "Fuel Type", ["GRASSES","BRUSH","LOGGING DEBRIS","OTHER"],
+        index=["GRASSES","BRUSH","LOGGING DEBRIS","OTHER"].index(
+            st.session_state.data.get("fuel_type","GRASSES")
+        )
+    )
     if st.button("⚙ Apply General Defaults"):
         apply_defaults("general")
 
@@ -189,24 +219,49 @@ with tabs[1]:
     st.header("Desired Weather")
     col1, col2 = st.columns(2)
     with col1:
-        data["wind_speed"] = st.text_input("Wind Speed", data.get("wind_speed","5-15 mph"))
-        data["wind_dir"] = st.text_input("Wind Direction", data.get("wind_dir","SW"))
-        data["rh"] = st.text_input("Relative Humidity", data.get("rh","30-50%"))
+        st.session_state.data["wind_speed"] = st.text_input(
+            "Wind Speed", value=st.session_state.data.get("wind_speed","5-15 mph")
+        )
+        st.session_state.data["wind_dir"] = st.text_input(
+            "Wind Direction", value=st.session_state.data.get("wind_dir","SW")
+        )
+        st.session_state.data["rh"] = st.text_input(
+            "Relative Humidity", value=st.session_state.data.get("rh","30-50%")
+        )
     with col2:
-        data["transport_wind"] = st.text_input("Transport Wind", data.get("transport_wind",""))
-        data["mixing_height"] = st.text_input("Mixing Height", data.get("mixing_height",""))
-        data["category_day"] = st.text_input("Category Day", data.get("category_day",""))
+        st.session_state.data["transport_wind"] = st.text_input(
+            "Transport Wind", value=st.session_state.data.get("transport_wind","")
+        )
+        st.session_state.data["mixing_height"] = st.text_input(
+            "Mixing Height", value=st.session_state.data.get("mixing_height","")
+        )
+        st.session_state.data["category_day"] = st.text_input(
+            "Category Day", value=st.session_state.data.get("category_day","")
+        )
     if st.button("⚙ Apply Weather Defaults"):
         apply_defaults("weather")
 
 # ── FIRING TAB ──
 with tabs[2]:
     st.header("Firing & Equipment")
-    data["firing_technique"] = st.radio("Technique", ["HEAD","FLANK","BACKING","OTHER"])
-    data["firing_other"] = st.text_input("If OTHER", data.get("firing_other",""))
-    data["manpower_equipment"] = st.text_area("Manpower & Equipment", data.get("manpower_equipment",""))
-    data["plan_prepared_by"] = st.text_input("Prepared By", data.get("plan_prepared_by",""))
-    data["fire_boss"] = st.text_input("Fire Boss", data.get("fire_boss",""))
+    st.session_state.data["firing_technique"] = st.radio(
+        "Technique", ["HEAD","FLANK","BACKING","OTHER"],
+        index=["HEAD","FLANK","BACKING","OTHER"].index(
+            st.session_state.data.get("firing_technique","HEAD")
+        )
+    )
+    st.session_state.data["firing_other"] = st.text_input(
+        "If OTHER", value=st.session_state.data.get("firing_other","")
+    )
+    st.session_state.data["manpower_equipment"] = st.text_area(
+        "Manpower & Equipment", value=st.session_state.data.get("manpower_equipment","")
+    )
+    st.session_state.data["plan_prepared_by"] = st.text_input(
+        "Prepared By", value=st.session_state.data.get("plan_prepared_by","")
+    )
+    st.session_state.data["fire_boss"] = st.text_input(
+        "Fire Boss", value=st.session_state.data.get("fire_boss","")
+    )
     if st.button("⚙ Apply Firing Defaults"):
         apply_defaults("firing")
 
@@ -219,7 +274,7 @@ with tabs[3]:
         if "_error" in wx:
             st.error(wx["_error"])
         else:
-            data.update({
+            st.session_state.data.update({
                 "actual_wind_speed": wx["wind_speed"],
                 "actual_wind_dir": wx["wind_dir"],
                 "actual_rh": wx["rh"],
@@ -229,24 +284,47 @@ with tabs[3]:
             st.success("Weather loaded")
     col1, col2 = st.columns(2)
     with col1:
-        data["actual_date"] = st.date_input("Date", value=parse_date(data.get("actual_date")))
-        data["actual_wind_speed"] = st.text_input("Wind Speed", data.get("actual_wind_speed",""))
-        data["actual_wind_dir"] = st.text_input("Wind Dir", data.get("actual_wind_dir",""))
+        st.session_state.data["actual_date"] = st.date_input(
+            "Date", value=parse_date(st.session_state.data.get("actual_date"))
+        )
+        st.session_state.data["actual_wind_speed"] = st.text_input(
+            "Wind Speed", value=st.session_state.data.get("actual_wind_speed","")
+        )
+        st.session_state.data["actual_wind_dir"] = st.text_input(
+            "Wind Dir", value=st.session_state.data.get("actual_wind_dir","")
+        )
     with col2:
-        data["actual_rh"] = st.text_input("RH", data.get("actual_rh",""))
-        data["actual_temp_max"] = st.text_input("Temp Max", data.get("actual_temp_max",""))
-        data["actual_temp_min"] = st.text_input("Temp Min", data.get("actual_temp_min",""))
+        st.session_state.data["actual_rh"] = st.text_input(
+            "RH", value=st.session_state.data.get("actual_rh","")
+        )
+        st.session_state.data["actual_temp_max"] = st.text_input(
+            "Temp Max", value=st.session_state.data.get("actual_temp_max","")
+        )
+        st.session_state.data["actual_temp_min"] = st.text_input(
+            "Temp Min", value=st.session_state.data.get("actual_temp_min","")
+        )
 
 # ── CHECKLIST TAB ──
 with tabs[4]:
     st.header("Checklist")
-    data["chk_plan_complete"] = st.checkbox("Plan Complete", data.get("chk_plan_complete", True))
-    data["chk_adj_notified"] = st.checkbox("Landowners Notified", data.get("chk_adj_notified", True))
-    data["chk_fire_auth"] = st.checkbox("Fire Authority Contacted", data.get("chk_fire_auth", True))
-    data["chk_test_burn"] = st.checkbox("Test Burn Done", data.get("chk_test_burn", True))
-    data["checklist_completed_by"] = st.text_input("Completed By", data.get("checklist_completed_by",""))
-    data["burn_manager_name"] = st.text_input("Burn Manager", data.get("burn_manager_name",""))
-    data["burn_manager_contact"] = st.text_input("Contact", data.get("burn_manager_contact",""))
+    for key, label in [
+        ("chk_plan_complete", "Plan Complete"),
+        ("chk_adj_notified", "Landowners Notified"),
+        ("chk_fire_auth", "Fire Authority Contacted"),
+        ("chk_test_burn", "Test Burn Done")
+    ]:
+        st.session_state.data[key] = st.checkbox(
+            label, value=st.session_state.data.get(key, True)
+        )
+    st.session_state.data["checklist_completed_by"] = st.text_input(
+        "Completed By", value=st.session_state.data.get("checklist_completed_by","")
+    )
+    st.session_state.data["burn_manager_name"] = st.text_input(
+        "Burn Manager", value=st.session_state.data.get("burn_manager_name","")
+    )
+    st.session_state.data["burn_manager_contact"] = st.text_input(
+        "Contact", value=st.session_state.data.get("burn_manager_contact","")
+    )
     if st.button("⚙ Apply Checklist Defaults"):
         apply_defaults("checklist")
 
@@ -255,7 +333,7 @@ st.divider()
 if st.button("📄 Generate PDF"):
     try:
         pdf_bytes = io.BytesIO()
-        fill_pdf(data, pdf_bytes)
+        fill_pdf(st.session_state.data, pdf_bytes)
         pdf_bytes.seek(0)
         st.download_button(
             "⬇ Download Filled Burn Plan PDF",
