@@ -7,6 +7,7 @@ from datetime import date, datetime
 import io
 from reportlab.pdfgen import canvas as rl_canvas
 from pypdf import PdfReader, PdfWriter
+import copy
 
 # ── 1. CONSTANTS ──
 NWS_POINTS = {
@@ -57,7 +58,19 @@ if "data" not in st.session_state:
     st.session_state.data = {}
 data = st.session_state.data
 
-# ── FUNCTIONS ──
+# ── FUNCTIONS ────────────────────────────────────
+
+# ── SAFE JSON SERIALIZATION ──
+def make_json_serializable(obj):
+    """Recursively convert dates to strings in dicts/lists for JSON."""
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(i) for i in obj]
+    elif isinstance(obj, date):
+        return obj.strftime("%m/%d/%Y")
+    else:
+        return obj
 
 def parse_date(d):
     if isinstance(d, date):
@@ -248,7 +261,7 @@ if uploaded_pdf and st.button("📄 Generate PDF"):
 
 # ── DEFAULTS UPLOAD/DOWNLOAD ──
 uploaded_defaults = st.file_uploader("Upload Defaults JSON", type="json")
+safe_data = make_json_serializable(data)
 if uploaded_defaults:
     data.update(json.load(uploaded_defaults))
-st.download_button("💾 Download Current Defaults", data=json.dumps(data, indent=2),
-                   file_name="burn_defaults.json", mime="application/json")
+st.download_button("💾 Download Current Defaults",data=json.dumps(safe_data, indent=2),file_name="burn_defaults.json",mime="application/json")
