@@ -1,113 +1,128 @@
 import streamlit as st
+import urllib.request
 import json
+from datetime import date
 import os
 import io
-import urllib.request
-from datetime import date
 from reportlab.pdfgen import canvas as rl_canvas
 from pypdf import PdfReader, PdfWriter
 
-# --- CONFIG & PATHS ---
-DEFAULTS_FILE = "burn_plan_defaults.json"
-SOURCE_PDF = "prescribed-burning-plan.pdf"
-PDF_W, PDF_H = 784.62, 1015.38
+# ── 1. CONSTANTS & DATA STRUCURES (Defined first to avoid NameErrors) ──
+# Moving these to the top ensures they are available to all functions[cite: 75, 78].
+NWS_POINTS = {
+    "SE Louisiana (New Orleans/Baton Rouge)": ("30.4515", "-91.1543"),
+    "SW Louisiana (Lake Charles)":            ("30.2266", "-93.2174"),
+    "NW Louisiana (Shreveport)":              ("32.5252", "-93.7502"),
+    "NE Louisiana (Jackson, MS region)":      ("32.5093", "-92.1193"),
+}
 
-# --- PDF & WEATHER LOGIC (RETAINED FROM ORIGINAL) ---
-# [Insert your existing NWS_POINTS, fetch_nws_forecast, make_fields, 
-# _draw_overlay, and fill_pdf functions here unchanged]
+# PDF Dimensions
+PDF_W = 784.62
+PDF_H = 1015.38
 
-def load_defaults():
-    base = {
-        "general": {"date_prepared": date.today().strftime("%m/%d/%Y"), "landowner": "GOVT", "city_state_zip": "Louisiana, LA"},
-        "weather": {"wind_speed": "5-15 mph", "rh": "30-50%"},
-        "firing": {"firing_technique": "BACKING"},
-        "actual": {"actual_date": date.today().strftime("%m/%d/%Y")},
-        "checklist": {k: True for k in ["chk_plan_complete", "chk_adj_notified", "chk_fire_auth"]} # truncated for brevity
-    }
-    if os.path.exists(DEFAULTS_FILE):
-        with open(DEFAULTS_FILE, "r") as f:
-            saved = json.load(f)
-            for k in base: base[k].update(saved.get(k, {}))
-    return base
+# Coordinate Maps for Circles and Boxes
+REASON_CENTERS = {"SITE PREP": (240.9, 238.9), "FUEL REDUCTION": (328.7, 238.9), "TSI": (400.2, 238.9), "WILDLIFE": (452.6, 238.9), "OTHER": (529.0, 238.9)}
+FUEL_AMOUNT_CENTERS = {"LIGHT": (238.7, 255.7), "MEDIUM": (324.5, 255.7), "HEAVY": (417.1, 255.7)}
+FUEL_TYPE_CENTERS = {"GRASSES": (246.5, 270.3), "BRUSH": (321.1, 270.3), "LOGGING DEBRIS": (437.8, 270.3), "OTHER": (261.2, 284.9)}
+FIRING_CENTERS = {"HEAD": (262.8, 651.4), "FLANK": (327.0, 651.4), "BACKING": (398.7, 651.4), "OTHER": (470.6, 651.4)}
+YES_CENTER, NO_CENTER = (537.6, 355.4), (622.0, 355.4)
 
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="CSU Burn Plan Filler", layout="wide")
+CHK_KEYS = [
+    "chk_plan_complete", "chk_adj_notified", "chk_fire_auth", "chk_smoke_map", "chk_burn_map", 
+    "chk_equipment", "chk_signs", "chk_test_burn", "chk_briefing", "chk_objectives", 
+    "chk_map_disc", "chk_hazards", "chk_assignments", "chk_ignition", "chk_comms", 
+    "chk_equip_loc", "chk_assistance", "chk_questions"
+]
 
-st.title("🔥 Louisiana LDAF Prescribed Burning Plan")
-st.caption("Complete all sections below. Use the sidebar to manage your global defaults.")
+CHK_CENTERS = [
+    (160.0, 156.4), (160.0, 182.8), (160.0, 208.2), (160.0, 246.7), (160.0, 273.1),
+    (160.0, 299.5), (160.0, 325.9), (160.0, 351.3), (160.0, 415.3), (160.0, 441.7),
+    (160.0, 467.1), (160.0, 493.5), (160.0, 519.9), (160.0, 546.3), (160.0, 571.7),
+    (160.0, 598.1), (160.0, 636.6)
+]
 
-# Initialize Session State
-if 'data' not in st.session_state:
-    st.session_state.defaults = load_defaults()
-    # Flatten defaults for easier form handling
-    st.session_state.form_data = {k: v for sub in st.session_state.defaults.values() for k, v in sub.items()}
-
-# Sidebar: Defaults Management
-with st.sidebar:
-    st.header("Settings")
-    if st.button("Reset to Factory Defaults"):
-        if os.path.exists(DEFAULTS_FILE): os.remove(DEFAULTS_FILE)
-        st.rerun()
-    
-    st.divider()
-    font_bold = st.checkbox("Bold PDF Font", value=True)
-    font_size = st.number_input("Font Size", min_value=7, max_value=12, value=9)
-
-# Main Form Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 General", "🌤 Weather", "🔥 Firing", "📊 Actual", "✅ Checklist"])
-
-with tab1:
-    st.header("Basic Information")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.session_state.form_data['date_prepared'] = st.text_input("Date Prepared", st.session_state.form_data.get('date_prepared'))
-        st.session_state.form_data['landowner'] = st.text_input("Landowner", st.session_state.form_data.get('landowner'))
-    with col2:
-        st.session_state.form_data['phone'] = st.text_input("Phone", st.session_state.form_data.get('phone'))
-        st.session_state.form_data['address'] = st.text_input("Address", st.session_state.form_data.get('address'))
-
-    st.subheader("Burn Description")
-    st.session_state.form_data['reason_for_burn'] = st.radio("Reason for Burn", 
-        ["SITE PREP", "FUEL REDUCTION", "TSI", "WILDLIFE", "OTHER"], horizontal=True)
-
-with tab4:
-    st.header("Live Fire Weather")
-    region = st.selectbox("NWS Region", options=list(NWS_POINTS.keys()))
-    if st.button("🌐 Fetch Current Weather"):
-        with st.spinner("Fetching..."):
-            w_data = fetch_nws_forecast(region)
-            if "_error" not in w_data:
-                st.session_state.form_data.update({
-                    "actual_wind_speed": w_data['wind_speed'],
-                    "actual_wind_dir": w_data['wind_dir'],
-                    "actual_rh": w_data['rh'],
-                    "actual_temp_max": w_data['temp_max']
-                })
-                st.success("Weather applied!")
-            else:
-                st.error("Fetch failed.")
-
-# ... [Repeat similar patterns for tabs 2, 3, and 5] ...
-
-st.divider()
-
-# EXPORT LOGIC
-if st.button("🚀 Generate PDF for iPad"):
+# ── 2. WEATHER FETCHING ──
+def fetch_nws_forecast(region: str) -> dict:
+    lat, lon = NWS_POINTS[region] [cite: 3]
+    headers = {"User-Agent": "PrescribedBurnPlanner/1.0 (la.burn.planner@example.com)"} [cite: 3]
+    result = {"wind_speed": "", "wind_dir": "", "rh": "", "temp_max": "", "temp_min": "",
+              "transport_wind": ">=8.8 mph", "mixing_height": ">=1640 ft", "category_day": "2"} [cite: 3]
     try:
-        # Update styling info
-        st.session_state.form_data["_font_size"] = font_size
-        st.session_state.form_data["_font_name"] = "Helvetica-Bold" if font_bold else "Helvetica"
+        req = urllib.request.Request(f"https://api.weather.gov/points/{lat},{lon}", headers=headers) [cite: 4]
+        with urllib.request.urlopen(req, timeout=10) as r:
+            props = json.loads(r.read())["properties"] [cite: 4]
         
-        # Create PDF in memory
-        output_buffer = io.BytesIO()
-        fill_pdf(st.session_state.form_data, output_buffer)
-        
-        st.download_button(
-            label="📥 Download Filled PDF",
-            data=output_buffer.getvalue(),
-            file_name=f"burn_plan_{date.today()}.pdf",
-            mime="application/pdf"
-        )
+        # Hourly for current conditions
+        req2 = urllib.request.Request(props["forecastHourly"], headers=headers) [cite: 4]
+        with urllib.request.urlopen(req2, timeout=10) as r:
+            periods = json.loads(r.read())["properties"]["periods"] [cite: 4]
+        if periods:
+            cur = periods[0] [cite: 5]
+            result["wind_speed"] = cur.get("windSpeed", "") [cite: 5]
+            result["wind_dir"] = cur.get("windDirection", "") [cite: 5]
+            rh = cur.get("relativeHumidity", {}).get("value", "") [cite: 5]
+            result["rh"] = f"{rh}%" if rh != "" else "" [cite: 5]
     except Exception as e:
-        st.error(f"Error generating PDF: {e}")
+        result["_error"] = str(e) [cite: 8]
+    return result
 
+# ── 3. PDF RENDERING LOGIC ──
+def make_fields(data: dict) -> list:
+    def y(top, offset=0): return PDF_H - top - offset [cite: 9]
+    fs = data.get("_font_size", 9) [cite: 9]
+    fields = []
+    def add(page, x0, top, text, font=fs):
+        if text: fields.append({"page": page, "x": x0, "y": y(top, -2), "text": str(text), "font": font}) [cite: 10]
+
+    # Mapping your data keys to PDF coordinates [cite: 11, 12, 13, 14, 15]
+    add(1, 325, 135, data.get("date_prepared", ""))
+    add(1, 136, 160, data.get("landowner", ""))
+    add(1, 290, 312, data.get("sect", ""))
+    add(1, 430, 312, data.get("twn", ""))
+    add(1, 570, 312, data.get("rng", ""))
+    # ... add other fields as needed ...
+    return fields
+
+def _draw_overlay(c, data: dict, page: int):
+    font_name = data.get("_font_name", "Helvetica-Bold") [cite: 21]
+    font_size = data.get("_font_size", 9) [cite: 21]
+    def py(top): return PDF_H - top [cite: 21]
+
+    if page == 1:
+        # Drawing circles based on selection [cite: 23, 24, 25, 26]
+        reason = data.get("reason_for_burn", "").upper()
+        if reason in REASON_CENTERS:
+            cx, cy = REASON_CENTERS[reason]
+            c.ellipse(cx-20, py(cy)-8, cx+20, py(cy)+8, stroke=1, fill=0) [cite: 21, 22]
+
+        for f in make_fields(data):
+            if f["page"] == 1:
+                c.setFont(font_name, f.get("font", font_size))
+                c.drawString(f["x"], f["y"], f["text"]) [cite: 27]
+    
+    elif page == 2:
+        for key, (cx, cy) in zip(CHK_KEYS, CHK_CENTERS): [cite: 28]
+            if data.get(key):
+                c.line(cx-5, py(cy)-5, cx+5, py(cy)+5) [cite: 22]
+                c.line(cx+5, py(cy)-5, cx-5, py(cy)+5) [cite: 22]
+
+def fill_pdf(data: dict, output_target):
+    # Search for the PDF in the current directory [cite: 29]
+    src = "prescribed-burning-plan.pdf" 
+    if not os.path.exists(src):
+        raise FileNotFoundError("Place 'prescribed-burning-plan.pdf' in the repository.") [cite: 29]
+    
+    reader = PdfReader(src) [cite: 29]
+    writer = PdfWriter() [cite: 29]
+    
+    for page_num in range(1, 3):
+        buf = io.BytesIO() [cite: 30]
+        c = rl_canvas.Canvas(buf, pagesize=(PDF_W, PDF_H)) [cite: 30]
+        _draw_overlay(c, data, page_num)
+        c.save()
+        buf.seek(0)
+        overlay_reader = PdfReader(buf)
+        writer.add_page(reader.pages[page_num-1])
+        writer.pages[page_num-1].merge_page(overlay_reader.pages[0]) [cite: 30]
+
+    writer.write(output_target) [cite: 30]
